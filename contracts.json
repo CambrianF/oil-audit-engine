@@ -1,0 +1,15 @@
+﻿{
+    "Apex Drilling & Rig Services": {
+        "max_day_rate": 26000.00
+    },
+    "Pioneer Fluid Logistics": {
+        "max_haul_rate": 1250.00
+    },
+    "United Rentals Inc.": {
+        "rate_roll_threshold_days": 28,
+        "weekly_rate": 850.00,
+        "monthly_rate": 2800.00,
+        "max_esc_fee": 99.00,
+        "rpp_opted_in": false
+    }
+}

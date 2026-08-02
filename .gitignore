@@ -1,0 +1,14 @@
+﻿# Generated output - not source code
+oil_audit_summary*.xlsx
+vendor_history.json
+open_rental_ledger.json
+call_off_intake.csv
+
+# Python environment
+venv/
+__pycache__/
+*.pyc
+
+# OS files
+.DS_Store
+Thumbs.db
