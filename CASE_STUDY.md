@@ -53,3 +53,40 @@ If I hadn't caught this, the ghost-rental detector — the single feature I buil
 I added a check on the invoice'"'"'s contract start date: if the new rental'"'"'s start date is after the recorded call-off date, it'"'"'s treated as a legitimate new rental, not a continuation of the old one — regardless of the fact that the serial number matches a "called off" ledger entry. I tested it against the exact re-rental scenario, using the same unit that was already flagged as a real ghost rental elsewhere in my test data, to make sure the fix didn'"'"'t accidentally break the case it was supposed to still catch. Both held: the genuine ghost rental still flagged, and the legitimate re-rental correctly passed clean.
 
 The broader lesson: it'"'"'s not enough to test whether a feature handles the scenario you built it for. You also have to ask what happens as time passes and the real-world state your system is modeling keeps changing — because a system that only makes sense at the moment you built it is a system that will quietly start lying to you later.
+
+## A fourth bug: the error that hid itself
+
+While testing the ghost-rental feature against out-of-order data (what happens if a call-off confirmation arrives late, after a more recent one is already on file), I built a safeguard: reject an incoming call-off date if it'"'"'s older than what'"'"'s already recorded for that unit, rather than silently overwriting good data with stale data.
+
+I tested it. It didn'"'"'t work. I fixed the ledger'"'"'s stored data by hand and tested again. It still didn'"'"'t work. I checked the code — the rejection logic was correct, verified by reading the actual file contents. I checked for a stale Python cache — cleared it, still didn'"'"'t work. I checked for duplicate files elsewhere on disk — none existed. Every individual piece I could inspect was correct, and yet the behavior was consistently wrong.
+
+## Finding it
+
+The actual bug wasn'"'"'t in the rejection logic at all. It was in the function that loads the ledger file from disk:
+
+```python
+def load_ledger():
+    if os.path.exists(LEDGER_PATH):
+        try:
+            with open(LEDGER_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+```
+
+Every time I'"'"'d rewritten the ledger file from the terminal, the tool I used had embedded an invisible marker at the start of the file (a byte-order mark, or BOM) — the same category of issue I'"'"'d already hit once before with a CSV file, but I hadn'"'"'t connected the two. That invisible character made `json.load()` fail. And the `except Exception: return {}` line — written defensively, to keep the program from crashing if the ledger file didn'"'"'t exist yet — was silently catching that failure and returning an empty dictionary instead.
+
+An empty ledger doesn'"'"'t look broken. It looks like a ledger with no entries yet. So every "existing entry" check I ran saw nothing there, treated every incoming record as brand new, and happily overwrote whatever had been there before — including, each time, quietly erasing prior entries that weren'"'"'t part of that specific run. I spent several rounds fixing the data and re-testing, and every fix looked like it failed, because the file was never actually being read at all.
+
+## Why this was harder to find than the other three
+
+The first three bugs I found all had a common shape: the code ran, produced an answer, and the answer was wrong. That'"'"'s findable by testing — you compare what you expected to what you got, and the mismatch points you at the problem.
+
+This one was different. The code wasn'"'"'t producing a wrong answer. It was failing completely, silently, and then behaving as if nothing had gone wrong. There was no error message, no traceback, no signal at all that something had broken — because the broad exception handler was specifically written to prevent exactly that kind of visible failure. The safety mechanism I'"'"'d added to keep the program from crashing was the same mechanism hiding the actual defect.
+
+## The lesson
+
+A broad `except Exception:` that silently swallows an error and returns a harmless-looking default is a reasonable thing to reach for — nobody wants their program to crash on a missing file. But it comes with a cost: it can hide a real bug so completely that the bug becomes invisible to every kind of testing except staring directly at the one function where the exception is being caught. I only found this by refusing to accept "the code looks right" as an answer, and manually verifying, one command at a time, exactly what was happening at each step — not just what the code said it should do, but what the file on disk actually contained at each point in the process.
+
+Going forward, I want any exception handler I write to at least log or print what it caught, not just silently substitute a default — a failure that announces itself is a bug you find in minutes; a failure that hides itself is a bug you find in hours, if you find it at all.
