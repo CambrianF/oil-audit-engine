@@ -8,9 +8,15 @@ CALL_OFF_INTAKE_CSV = "call_off_intake.csv"
 
 
 def load_ledger():
+    """Uses utf-8-sig to safely handle a BOM marker if the file was
+    written by PowerShell (Set-Content -Encoding utf8 embeds a BOM).
+    Without this, json.load() silently fails on a BOM-prefixed file,
+    the broad except clause swallows the error, and the ledger appears
+    empty - which was causing every entry to look "new" and silently
+    wiping out anything not touched in that run."""
     if os.path.exists(LEDGER_PATH):
         try:
-            with open(LEDGER_PATH, "r", encoding="utf-8") as f:
+            with open(LEDGER_PATH, "r", encoding="utf-8-sig") as f:
                 return json.load(f)
         except Exception:
             return {}
@@ -22,9 +28,35 @@ def save_ledger(ledger):
         json.dump(ledger, f, indent=4)
 
 
+def parse_mmddyyyy(date_str):
+    try:
+        return datetime.strptime(date_str.strip(), "%m/%d/%Y")
+    except Exception:
+        return None
+
+
 def record_call_off(serial_number, call_off_date_str, confirmation_number):
-    """Marks a unit as officially called off (returned) as of a given date."""
+    """Marks a unit as officially called off (returned) as of a given date.
+    If the unit already has a call-off recorded, the new entry is only
+    applied if its date is the same or more recent - an older date is
+    rejected rather than silently overwriting good data."""
     ledger = load_ledger()
+    new_date = parse_mmddyyyy(call_off_date_str)
+
+    existing = ledger.get(serial_number)
+    if existing:
+        existing_date = parse_mmddyyyy(existing.get("call_off_date", ""))
+        if existing_date and new_date and new_date < existing_date:
+            return {
+                "status": "Rejected",
+                "reason": (
+                    f"New call-off date {call_off_date_str} is older than the "
+                    f"existing recorded date {existing['call_off_date']} for this unit. "
+                    f"Existing entry was kept unchanged."
+                ),
+                "kept": existing
+            }
+
     ledger[serial_number] = {
         "status": "Called Off",
         "call_off_date": call_off_date_str,
@@ -39,17 +71,7 @@ def get_asset_status(serial_number):
     return ledger.get(serial_number)
 
 
-def parse_mmddyyyy(date_str):
-    try:
-        return datetime.strptime(date_str.strip(), "%m/%d/%Y")
-    except Exception:
-        return None
-
-
 def ensure_intake_template_exists():
-    """Creates a starter CSV file for AP staff to fill in, if one doesn't
-    already exist. This is the actual intake mechanism - no Python
-    knowledge required, just editing a spreadsheet."""
     if not os.path.exists(CALL_OFF_INTAKE_CSV):
         with open(CALL_OFF_INTAKE_CSV, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -63,15 +85,11 @@ def ensure_intake_template_exists():
 
 
 def import_call_offs_from_csv():
-    """Reads call_off_intake.csv and records every row into the ledger.
-    Skips the example row and any row missing required fields. Uses
-    utf-8-sig to safely handle a BOM marker if one is present (common
-    when the CSV was saved by PowerShell, Excel, or Notepad on Windows) -
-    without this, the first column header can silently fail to match."""
     if not ensure_intake_template_exists():
         return []
 
     imported = []
+    rejected = []
     skipped = []
 
     with open(CALL_OFF_INTAKE_CSV, "r", encoding="utf-8-sig", newline="") as f:
@@ -92,7 +110,11 @@ def import_call_offs_from_csv():
                 skipped.append(f"Row {row_num}: '{date_str}' is not a valid MM/DD/YYYY date, skipped")
                 continue
 
-            record_call_off(serial, date_str, conf)
-            imported.append(f"{serial} — called off {date_str} (confirmation #{conf})")
+            result = record_call_off(serial, date_str, conf)
 
-    return {"imported": imported, "skipped": skipped}
+            if result.get("status") == "Rejected":
+                rejected.append(f"Row {row_num} ({serial}): {result['reason']}")
+            else:
+                imported.append(f"{serial} — called off {date_str} (confirmation #{conf})")
+
+    return {"imported": imported, "rejected": rejected, "skipped": skipped}

@@ -160,9 +160,10 @@ def check_ghost_rental(serial_number, billed_through_str, contract_start_str, da
     """Cross-references a unit's serial number against the open-rental
     ledger. If the ledger shows it was officially called off BEFORE the
     invoice's billing period ends, this is a ghost rental - UNLESS the
-    invoice's contract start date is itself after the recorded call-off
+    invoice's contract start date is on or after the recorded call-off
     date, which means this is a legitimate NEW rental period for the
-    same unit, not a continuation of the old one."""
+    same unit (including a same-day re-rental), not a continuation of
+    the old one."""
     if not serial_number or serial_number == "N/A":
         return None
     if not billed_through_str or billed_through_str == "N/A":
@@ -179,9 +180,10 @@ def check_ghost_rental(serial_number, billed_through_str, contract_start_str, da
     if not call_off_date or not billed_through_date:
         return None
 
-    # If this invoice's rental period started AFTER the recorded call-off,
-    # this is a legitimate new rental of the same unit - not a ghost charge.
-    if contract_start_date and contract_start_date > call_off_date:
+    # If this invoice's rental period started ON OR AFTER the recorded
+    # call-off date, this is a legitimate new rental of the same unit -
+    # not a ghost charge - even if it starts the same day.
+    if contract_start_date and contract_start_date >= call_off_date:
         return None
 
     if billed_through_date > call_off_date:
