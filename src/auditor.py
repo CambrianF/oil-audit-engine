@@ -290,7 +290,8 @@ def audit_invoice(file_path):
                 financial_issues.append(ghost_rental_issue)
 
             drift_issue = check_rate_drift(
-                ref_fields["serial_number"], vendor_name, daily_rate, ref_fields["invoice_number"]
+                ref_fields["serial_number"], vendor_name, daily_rate,
+                ref_fields["invoice_number"], ref_fields["contract_start"]
             )
             if drift_issue:
                 financial_issues.append(drift_issue)
