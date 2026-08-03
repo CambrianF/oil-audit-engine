@@ -1,0 +1,50 @@
+{
+    "United Rentals Inc.::MP-44210": {
+        "rate": 210.0,
+        "invoice_number": "0091828111"
+    },
+    "United Rentals Inc.::LT-22019": {
+        "rate": 175.0,
+        "invoice_number": "0091831110"
+    },
+    "United Rentals Inc.::PS-33110": {
+        "rate": 95.0,
+        "invoice_number": "0091829555"
+    },
+    "United Rentals Inc.::LT-99213": {
+        "rate": 95.0,
+        "invoice_number": "0091827999"
+    },
+    "United Rentals Inc.::LT-99500": {
+        "rate": 95.0,
+        "invoice_number": "0091834400"
+    },
+    "United Rentals Inc.::CS-77000": {
+        "rate": 140.0,
+        "invoice_number": "0091835500"
+    },
+    "United Rentals Inc.::MP-55210": {
+        "rate": 195.0,
+        "invoice_number": "0091832440"
+    },
+    "United Rentals Inc.::CS-19005": {
+        "rate": 130.0,
+        "invoice_number": "0091833302"
+    },
+    "United Rentals Inc.::GEN-77291": {
+        "rate": 185.0,
+        "invoice_number": "0091841000"
+    },
+    "United Rentals Inc.::CS-19004": {
+        "rate": 130.0,
+        "invoice_number": "0091833301"
+    },
+    "United Rentals Inc.::GEN-88410": {
+        "rate": 110.0,
+        "invoice_number": "0091830220"
+    },
+    "United Rentals Inc.::LT-60100": {
+        "rate": 185.0,
+        "invoice_number": "0091850002"
+    }
+}

@@ -4,6 +4,7 @@ import pdfplumber
 import re
 from datetime import datetime
 from src.ledger import get_asset_status, parse_mmddyyyy
+from src.rate_tracker import check_rate_drift
 
 HISTORY_DB_PATH = "vendor_history.json"
 
@@ -25,7 +26,7 @@ def load_contracts():
 def load_vendor_history():
     if os.path.exists(HISTORY_DB_PATH):
         try:
-            with open(HISTORY_DB_PATH, "r", encoding="utf-8") as f:
+            with open(HISTORY_DB_PATH, "r", encoding="utf-8-sig") as f:
                 return json.load(f)
         except Exception:
             return {}
@@ -74,11 +75,6 @@ def get_vendor_risk_level(vendor_record):
 
 
 def extract_reference_fields(raw_text):
-    """Generic extraction of common oilfield/AP reference identifiers.
-    Works across any vendor's invoice; returns 'N/A' for fields not
-    present rather than guessing. Colon is required as the separator
-    to avoid matching unrelated words (e.g. 'INVOICE FROM: Vendor')."""
-
     def find(pattern):
         match = re.search(pattern, raw_text, re.IGNORECASE)
         return match.group(1).strip() if match else "N/A"
@@ -103,16 +99,10 @@ def extract_reference_fields(raw_text):
 
 
 def has_valid_payment_terms(raw_text):
-    """Requires the actual pattern of a payment term (Net followed by a
-    number of days), not just the substring 'net' anywhere in the text
-    (which would false-match things like 'internet', domain names, etc)."""
     return re.search(r'\bnet\s*\d{1,3}\b', raw_text, re.IGNORECASE) is not None
 
 
 def find_duration_days(raw_text):
-    """Proximity-based: finds a day-count regardless of exact sentence
-    structure, by checking several common phrasings rather than one
-    rigid pattern. Returns the first match found, or None."""
     patterns = [
         r'days?\s+billed\s*:?\s*(\d{1,4})',
         r'billed\s+for\s+(\d{1,4})\s*(?:consecutive\s+)?days?',
@@ -128,9 +118,6 @@ def find_duration_days(raw_text):
 
 
 def find_daily_rate(raw_text):
-    """Proximity-based: finds a daily rate regardless of exact sentence
-    structure, by checking several common phrasings rather than one
-    rigid pattern. Returns the first match found, or None."""
     patterns = [
         r'daily\s+rate\s*\$?([0-9,]+\.\d{2})',
         r'rate\s+of\s+\$?([0-9,]+\.\d{2})',
@@ -144,9 +131,6 @@ def find_daily_rate(raw_text):
 
 
 def find_signed_amount(raw_text, label_pattern):
-    """Finds a dollar amount following a given label, correctly handling
-    a leading minus sign so credits are never misread as positive charges
-    (or silently ignored). Returns a signed float, or None if not found."""
     pattern = label_pattern + r':\s*(-?)\$?([0-9,]+\.\d{2})'
     m = re.search(pattern, raw_text, re.IGNORECASE)
     if not m:
@@ -157,13 +141,6 @@ def find_signed_amount(raw_text, label_pattern):
 
 
 def check_ghost_rental(serial_number, billed_through_str, contract_start_str, daily_rate):
-    """Cross-references a unit's serial number against the open-rental
-    ledger. If the ledger shows it was officially called off BEFORE the
-    invoice's billing period ends, this is a ghost rental - UNLESS the
-    invoice's contract start date is on or after the recorded call-off
-    date, which means this is a legitimate NEW rental period for the
-    same unit (including a same-day re-rental), not a continuation of
-    the old one."""
     if not serial_number or serial_number == "N/A":
         return None
     if not billed_through_str or billed_through_str == "N/A":
@@ -180,9 +157,6 @@ def check_ghost_rental(serial_number, billed_through_str, contract_start_str, da
     if not call_off_date or not billed_through_date:
         return None
 
-    # If this invoice's rental period started ON OR AFTER the recorded
-    # call-off date, this is a legitimate new rental of the same unit -
-    # not a ghost charge - even if it starts the same day.
     if contract_start_date and contract_start_date >= call_off_date:
         return None
 
@@ -314,6 +288,12 @@ def audit_invoice(file_path):
             )
             if ghost_rental_issue:
                 financial_issues.append(ghost_rental_issue)
+
+            drift_issue = check_rate_drift(
+                ref_fields["serial_number"], vendor_name, daily_rate, ref_fields["invoice_number"]
+            )
+            if drift_issue:
+                financial_issues.append(drift_issue)
 
         regional_benchmarks = {
             "Apex Drilling & Rig Services": 25000.0,
