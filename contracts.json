@@ -1,15 +1,56 @@
 ﻿{
     "Apex Drilling & Rig Services": {
-        "max_day_rate": 26000.00
+        "rules": [
+            {
+                "type": "rate_cap",
+                "keywords": ["day rate", "daily rate", "rig rate"],
+                "max": 26000.00,
+                "label": "Day Rate Variance"
+            }
+        ],
+        "benchmark": 25000.0,
+        "benchmark_keywords": ["day rate", "daily rate", "rig rate", "haul rate", "hauling rate", "transport rate"],
+        "features": []
     },
     "Pioneer Fluid Logistics": {
-        "max_haul_rate": 1250.00
+        "rules": [
+            {
+                "type": "rate_cap",
+                "keywords": ["haul rate", "hauling rate", "transport rate"],
+                "max": 1250.00,
+                "label": "Hauling Rate Variance"
+            }
+        ],
+        "benchmark": 1400.0,
+        "benchmark_keywords": ["day rate", "daily rate", "rig rate", "haul rate", "hauling rate", "transport rate"],
+        "features": []
     },
     "United Rentals Inc.": {
-        "rate_roll_threshold_days": 28,
-        "weekly_rate": 850.00,
-        "monthly_rate": 2800.00,
-        "max_esc_fee": 99.00,
-        "rpp_opted_in": false
+        "rules": [
+            {
+                "type": "rate_roll",
+                "threshold_days": 28,
+                "label": "Rate-Roll Failure"
+            },
+            {
+                "type": "fee_cap",
+                "label_pattern": "Environmental Service Charge",
+                "display_label": "Environmental Service Charge",
+                "max": 99.00,
+                "issue_label": "ESC Cap Violation",
+                "credit_label": "ESC Credit Noted"
+            },
+            {
+                "type": "unauthorized_fee",
+                "label_pattern": "Damage Waiver \\(RPP\\)",
+                "display_label": "Damage Waiver (RPP)",
+                "opted_in": false,
+                "issue_label": "Unauthorized RPP Fee",
+                "credit_label": "RPP Credit Noted"
+            }
+        ],
+        "benchmark": 0.0,
+        "benchmark_keywords": [],
+        "features": ["ghost_rental", "rate_drift"]
     }
 }

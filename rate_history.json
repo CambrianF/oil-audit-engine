@@ -19,6 +19,16 @@
         "invoice_number": "0091827999",
         "invoice_date": "07/01/2026"
     },
+    "United Rentals Inc.::LT-60100": {
+        "rate": 185.0,
+        "invoice_number": "0091850002",
+        "invoice_date": "07/01/2026"
+    },
+    "United Rentals Inc.::LT-70200": {
+        "rate": 200.0,
+        "invoice_number": "0091860002",
+        "invoice_date": "08/01/2026"
+    },
     "United Rentals Inc.::LT-99500": {
         "rate": 95.0,
         "invoice_number": "0091834400",
@@ -53,15 +63,5 @@
         "rate": 110.0,
         "invoice_number": "0091830220",
         "invoice_date": "07/01/2026"
-    },
-    "United Rentals Inc.::LT-60100": {
-        "rate": 185.0,
-        "invoice_number": "0091850002",
-        "invoice_date": "07/01/2026"
-    },
-    "United Rentals Inc.::LT-70200": {
-        "rate": 200.0,
-        "invoice_number": "0091860002",
-        "invoice_date": "08/01/2026"
     }
 }
