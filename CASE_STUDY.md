@@ -90,3 +90,25 @@ This one was different. The code wasn'"'"'t producing a wrong answer. It was fai
 A broad `except Exception:` that silently swallows an error and returns a harmless-looking default is a reasonable thing to reach for — nobody wants their program to crash on a missing file. But it comes with a cost: it can hide a real bug so completely that the bug becomes invisible to every kind of testing except staring directly at the one function where the exception is being caught. I only found this by refusing to accept "the code looks right" as an answer, and manually verifying, one command at a time, exactly what was happening at each step — not just what the code said it should do, but what the file on disk actually contained at each point in the process.
 
 Going forward, I want any exception handler I write to at least log or print what it caught, not just silently substitute a default — a failure that announces itself is a bug you find in minutes; a failure that hides itself is a bug you find in hours, if you find it at all.
+
+## A sixth bug: an assumption baked into every check at once
+
+Every check I had built for United Rentals - rate-roll, the Environmental Service Charge cap, the unauthorized RPP fee check - relied on functions that searched the document for the first matching line and stopped there. That worked perfectly on every test invoice I had built, because every one of them represented a single piece of equipment.
+
+After fixing the earlier gap around multi-line-item invoices for a different vendor, I asked myself a harder version of the same question: what happens on a United Rentals invoice that bills for more than one unit at once? A single delivery, one invoice, two pieces of equipment - completely normal in real oilfield operations, where an operator might rent a light tower and a generator for the same lease on the same day.
+
+I built the test: two units on one invoice, the first unit'"'"'s Environmental Service Charge well under the cap, the second unit'"'"'s charge well over it. I ran it. The invoice came back completely clean.
+
+## Why this one was worse than it looked
+
+This wasn'"'"'t one broken check. It was one broken assumption, copy-pasted into three separate checks. Rate-roll, the fee cap, and the unauthorized-fee detector all used the same "find the first match and stop" pattern, because I had written them at different times without noticing they shared the same underlying limitation. A single design mistake, made once early on, had silently propagated into every rule I built afterward for that vendor - and it would keep propagating into any new rule I added later, unless I fixed the pattern itself rather than patching one check at a time.
+
+The real overcharge in my test - a genuine $180 fee against a $99 cap - was sitting in plain text in the invoice, extracted correctly by the underlying regex, and simply never reached, because the code stopped looking after the first hit.
+
+## The fix
+
+I changed every relevant extraction function from "return the first match" to "return every match," and changed the checks that used them to loop over all of the results instead of just the one. The fix used a pattern that already existed correctly elsewhere in my own codebase - a different function, built earlier for a different vendor, had never made this mistake in the first place. I just hadn'"'"'t noticed the inconsistency until I went looking for it on purpose.
+
+## The lesson
+
+A bug that lives in one function is contained. A bug that lives in an assumption gets copied every time that assumption gets reused - and the more useful and well-tested a piece of code looks, the more likely it is to get reused without anyone questioning the premise it was built on. The fix here wasn'"'"'t really about regex. It was about noticing that "check the first thing found" had quietly become an unstated rule I was applying everywhere, and that the only way to find out whether that rule was safe was to build the one document specifically designed to break it.
