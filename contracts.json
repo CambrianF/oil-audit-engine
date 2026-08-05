@@ -52,5 +52,18 @@
         "benchmark": 0.0,
         "benchmark_keywords": [],
         "features": ["ghost_rental", "rate_drift"]
+    },
+    "Basin Trucking Co.": {
+        "rules": [
+            {
+                "type": "rate_cap",
+                "keywords": ["mileage rate", "hourly rate", "trucking rate"],
+                "max": 185.00,
+                "label": "Trucking Rate Variance"
+            }
+        ],
+        "benchmark": 175.0,
+        "benchmark_keywords": ["mileage rate", "hourly rate", "trucking rate"],
+        "features": []
     }
 }
