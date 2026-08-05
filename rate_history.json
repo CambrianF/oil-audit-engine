@@ -54,6 +54,11 @@
         "invoice_number": "0091840000",
         "invoice_date": "07/15/2026"
     },
+    "United Rentals Inc.::LT-95101": {
+        "rate": 95.0,
+        "invoice_number": "0091870001",
+        "invoice_date": "N/A"
+    },
     "United Rentals Inc.::CS-19004": {
         "rate": 130.0,
         "invoice_number": "0091833301",

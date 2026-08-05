@@ -20,42 +20,53 @@ def extract_rate_lines(raw_text, include_keywords, exclude_keywords, first_match
     return results
 
 
-def find_duration_days(raw_text):
+def find_all_duration_days(raw_text):
+    """Finds EVERY day-count in the document that matches a duration
+    pattern, not just the first - a multi-unit invoice can have several
+    separate rental periods, each needing its own check."""
     patterns = [
         r'days?\s+billed\s*:?\s*(\d{1,4})',
         r'billed\s+for\s+(\d{1,4})\s*(?:consecutive\s+)?days?',
         r'on\s+rent\s+for\s+(\d{1,4})\s*days?',
         r'(\d{1,4})\s*(?:consecutive\s+)?days?\s+on\s+rent',
-        r'(\d{1,4})\s*(?:consecutive\s+)?days?\b',
     ]
+    results = []
     for p in patterns:
-        m = re.search(p, raw_text, re.IGNORECASE)
-        if m:
-            return int(m.group(1))
-    return None
+        for m in re.finditer(p, raw_text, re.IGNORECASE):
+            results.append(int(m.group(1)))
+    if results:
+        return results
+    # Fallback: generic "X days" anywhere, only used if nothing more
+    # specific matched anywhere in the document.
+    fallback = re.findall(r'(\d{1,4})\s*(?:consecutive\s+)?days?\b', raw_text, re.IGNORECASE)
+    return [int(x) for x in fallback]
 
 
-def find_daily_rate(raw_text):
+def find_all_daily_rates(raw_text):
+    """Finds EVERY daily rate in the document, not just the first."""
     patterns = [
         r'daily\s+rate\s*\$?([0-9,]+\.\d{2})',
         r'rate\s+of\s+\$?([0-9,]+\.\d{2})',
         r'\$?([0-9,]+\.\d{2})\s*(?:/\s*day|per\s*day)',
     ]
+    results = []
     for p in patterns:
-        m = re.search(p, raw_text, re.IGNORECASE)
-        if m:
-            return float(m.group(1).replace(',', ''))
-    return None
+        for m in re.finditer(p, raw_text, re.IGNORECASE):
+            results.append(float(m.group(1).replace(',', '')))
+    return results
 
 
-def find_signed_amount(raw_text, label_pattern):
+def find_all_signed_amounts(raw_text, label_pattern):
+    """Finds EVERY dollar amount following a given label anywhere in the
+    document, not just the first - correctly signed for credits. A
+    multi-unit invoice can have the same labeled fee appear more than
+    once, one per unit."""
     pattern = label_pattern + r':\s*(-?)\$?([0-9,]+\.\d{2})'
-    m = re.search(pattern, raw_text, re.IGNORECASE)
-    if not m:
-        return None
-    sign = -1 if m.group(1) == '-' else 1
-    amount = float(m.group(2).replace(',', ''))
-    return sign * amount
+    results = []
+    for m in re.finditer(pattern, raw_text, re.IGNORECASE):
+        sign = -1 if m.group(1) == '-' else 1
+        results.append(sign * float(m.group(2).replace(',', '')))
+    return results
 
 
 EXCLUDE_KEYWORDS = [
@@ -76,27 +87,31 @@ def run_rate_cap_rule(raw_text, rule):
 
 
 def run_rate_roll_rule(raw_text, rule):
-    days_billed = find_duration_days(raw_text)
-    daily_rate = find_daily_rate(raw_text)
+    """Checks EVERY billed-days figure in the document against the
+    threshold, since a multi-unit invoice can have several rental
+    periods that each need their own check."""
+    days_list = find_all_duration_days(raw_text)
+    rates_list = find_all_daily_rates(raw_text)
     issues = []
-    if days_billed is not None and days_billed > rule["threshold_days"]:
-        rate_note = f"${daily_rate:,.2f}/day" if daily_rate is not None else "rate not confidently extracted"
-        issues.append(
-            f"{rule['label']}: Billed {days_billed} days at daily rate ({rate_note}) "
-            f"— exceeds {rule['threshold_days']}-day threshold; should have rolled to weekly/monthly tier"
-        )
-    return issues, daily_rate
+    for i, days_billed in enumerate(days_list):
+        if days_billed > rule["threshold_days"]:
+            daily_rate = rates_list[i] if i < len(rates_list) else None
+            rate_note = f"${daily_rate:,.2f}/day" if daily_rate is not None else "rate not confidently extracted"
+            issues.append(
+                f"{rule['label']}: Billed {days_billed} days at daily rate ({rate_note}) "
+                f"— exceeds {rule['threshold_days']}-day threshold; should have rolled to weekly/monthly tier"
+            )
+    primary_rate = rates_list[0] if rates_list else None
+    return issues, primary_rate
 
 
 def run_fee_cap_rule(raw_text, rule):
-    """Checks a labeled fee against a cap. Uses 'display_label' (clean
-    text) for the user-facing message, and 'label_pattern' (a regex
-    fragment) only for matching - keeping these separate avoids leaking
-    raw regex syntax like escaped parentheses into displayed messages."""
-    amount = find_signed_amount(raw_text, rule["label_pattern"])
+    """Checks EVERY occurrence of the labeled fee, not just the first -
+    a multi-unit invoice can have the same fee type billed once per unit."""
+    amounts = find_all_signed_amounts(raw_text, rule["label_pattern"])
     display = rule.get("display_label", rule["label_pattern"])
     issues = []
-    if amount is not None:
+    for amount in amounts:
         if amount > rule["max"]:
             issues.append(
                 f"{rule['issue_label']}: {display} ${amount:,.2f} exceeds contractual cap of ${rule['max']:,.2f}"
@@ -109,19 +124,21 @@ def run_fee_cap_rule(raw_text, rule):
 
 
 def run_unauthorized_fee_rule(raw_text, rule):
-    """Same display_label / label_pattern separation as run_fee_cap_rule."""
-    amount = find_signed_amount(raw_text, rule["label_pattern"])
+    """Checks EVERY occurrence of the labeled fee, same reasoning as
+    run_fee_cap_rule."""
+    amounts = find_all_signed_amounts(raw_text, rule["label_pattern"])
     display = rule.get("display_label", rule["label_pattern"])
     issues = []
-    if amount is not None and not rule.get("opted_in", False):
-        if amount > 0:
-            issues.append(
-                f"{rule['issue_label']}: {display} charge of ${amount:,.2f} billed despite opt-out on file"
-            )
-        elif amount < 0:
-            issues.append(
-                f"{rule['credit_label']}: {display} shows a credit of ${abs(amount):,.2f} (informational, not a violation)"
-            )
+    if not rule.get("opted_in", False):
+        for amount in amounts:
+            if amount > 0:
+                issues.append(
+                    f"{rule['issue_label']}: {display} charge of ${amount:,.2f} billed despite opt-out on file"
+                )
+            elif amount < 0:
+                issues.append(
+                    f"{rule['credit_label']}: {display} shows a credit of ${abs(amount):,.2f} (informational, not a violation)"
+                )
     return issues
 
 
