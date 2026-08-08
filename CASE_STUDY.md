@@ -112,3 +112,27 @@ I changed every relevant extraction function from "return the first match" to "r
 ## The lesson
 
 A bug that lives in one function is contained. A bug that lives in an assumption gets copied every time that assumption gets reused - and the more useful and well-tested a piece of code looks, the more likely it is to get reused without anyone questioning the premise it was built on. The fix here wasn'"'"'t really about regex. It was about noticing that "check the first thing found" had quietly become an unstated rule I was applying everywhere, and that the only way to find out whether that rule was safe was to build the one document specifically designed to break it.
+
+## A seventh bug: the fix that only fixed half the problem
+
+After finding that a multi-unit invoice could hide a real fee overcharge on any unit past the first, I fixed it - and then asked myself whether the same underlying assumption existed anywhere else. Ghost-rental detection and rate-drift detection both depend on knowing a specific unit'"'"'s serial number, dates, and rate. I had never actually tested either of them against a multi-unit invoice.
+
+I built one: two units on a single United Rentals invoice. The first was a normal, current rental. The second had a real, serious problem - it had already been returned three weeks earlier, and the vendor was still billing for it at three times the first unit'"'"'s rate.
+
+The result: no ghost-rental flag at all. Not wrong math - complete silence on a genuine $4,200 overcharge sitting in plain text in the document.
+
+## Why the earlier fix didn'"'"'t catch this
+
+My fix for the multi-unit fee-cap bug changed how dollar amounts were extracted - from "find the first match" to "find every match." That fix worked well for fee checks, because a fee check only needs a number: does this amount exceed the cap, yes or no, checked independently for every occurrence.
+
+Ghost-rental and rate-drift needed something different. They don'"'"'t just need a number - they need a *specific unit'"'"'s* serial number, paired correctly with *that same unit'"'"'s* dates and rate. Finding every serial number in a document and every rate in a document separately doesn'"'"'t solve this, because nothing ties a given serial number to the correct rate sitting three lines below it rather than a different rate sitting on a different unit entirely. The earlier fix generalized "check every instance" - the right idea for a fee cap, and the wrong shape entirely for a check that depends on correctly relating several different fields to each other.
+
+## The fix
+
+I restructured how the invoice gets read: instead of extracting one flat set of fields from the whole document, the code now splits the raw text into separate blocks, one per unit, each block starting at that unit'"'"'s serial number and running until the next one begins. Ghost-rental and rate-drift now run once per block, using only that block'"'"'s own dates and rate - never a value borrowed from a different unit elsewhere in the document.
+
+I verified it against both directions at once: the same test file where the real overcharge had previously gone undetected now correctly caught it, with the exact right unit, the exact right rate, and the exact right dollar figure - while every single-unit invoice from earlier testing, including the original ghost-rental and rate-drift test cases, still produced identical, correct results with the new architecture in place.
+
+## The lesson
+
+Finding one bug and generalizing "the same category of thing might be wrong elsewhere" is good instinct. But the fix that solves one instance of a pattern is not automatically the fix for every instance of that pattern, even when they look related on the surface. A fee check and a cross-referenced identity check both suffer from "only looking at the first match" - but the reason they suffer from it, and what actually solving it requires, are genuinely different. Recognizing that a bug rhymes with an earlier one is useful for knowing where to look next. It is not a substitute for actually understanding what the new case requires before deciding the old fix will cover it.
