@@ -4,7 +4,7 @@ import pdfplumber
 import re
 from src.ledger import get_asset_status, parse_mmddyyyy
 from src.rate_tracker import check_rate_drift
-from src.rules_engine import run_vendor_rules
+from src.rules_engine import run_vendor_rules, find_all_daily_rates
 
 HISTORY_DB_PATH = "vendor_history.json"
 
@@ -50,7 +50,7 @@ def get_vendor_risk_level(vendor_record):
         return f"Low Risk ({flag_ratio*100:.0f}% flag rate across {invoice_count} filings)"
 
 
-def extract_reference_fields(raw_text):
+def extract_document_level_fields(raw_text):
     def find(pattern):
         match = re.search(pattern, raw_text, re.IGNORECASE)
         return match.group(1).strip() if match else "N/A"
@@ -60,10 +60,48 @@ def extract_reference_fields(raw_text):
         "invoice_number": find(r'Invoice\s*#?\s*:\s*([A-Za-z0-9\-]+)'),
         "afe_number": find(r'AFE\s*:\s*([A-Za-z0-9\-]+)'),
         "api_number": find(r'API\s*#?\s*:\s*([A-Za-z0-9\-]+)'),
-        "serial_number": find(r'Serial\s*:\s*([A-Za-z0-9\-]+)'),
+    }
+
+
+def split_into_unit_blocks(raw_text):
+    """Splits a multi-unit invoice into one text block per unit, so
+    per-unit checks (ghost rental, rate drift) use that unit's own
+    serial number, dates, and rate - not the first one found anywhere
+    in the document. Each block runs from one 'Serial:' occurrence to
+    the next. If no 'Serial:' field exists at all, the whole document
+    is treated as a single unit with serial_number=None."""
+    serial_pattern = re.compile(r'Serial\s*:\s*([A-Za-z0-9\-]+)', re.IGNORECASE)
+    matches = list(serial_pattern.finditer(raw_text))
+
+    if not matches:
+        return [{"serial_number": None, "text": raw_text}]
+
+    blocks = []
+    for i, m in enumerate(matches):
+        start = m.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(raw_text)
+        block_text = raw_text[start:end]
+        blocks.append({"serial_number": m.group(1).strip(), "text": block_text})
+    return blocks
+
+
+def extract_unit_dates(block_text):
+    def find(pattern):
+        match = re.search(pattern, block_text, re.IGNORECASE)
+        return match.group(1).strip() if match else "N/A"
+
+    return {
         "billed_through": find(r'Billed\s+Through\s*:\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})'),
         "contract_start": find(r'Contract\s+Start\s*:\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})'),
     }
+
+
+def get_unit_daily_rate(block_text):
+    """Returns the first daily rate found within a single unit's own
+    text block - correct here because each block should represent one
+    unit's rental terms, unlike scanning the whole document at once."""
+    rates = find_all_daily_rates(block_text)
+    return rates[0] if rates else None
 
 
 def has_valid_payment_terms(raw_text):
@@ -136,7 +174,7 @@ def audit_invoice(file_path):
     history = load_vendor_history()
     text_lower = raw_text.lower()
 
-    ref_fields = extract_reference_fields(raw_text)
+    doc_fields = extract_document_level_fields(raw_text)
 
     lines = raw_text.split("\n")
     header_line = lines[0].lower() if lines else ""
@@ -151,26 +189,33 @@ def audit_invoice(file_path):
     if vendor_name in contracts:
         vendor_config = contracts[vendor_name]
 
-        rule_issues, extracted_daily_rate = run_vendor_rules(raw_text, vendor_config)
+        rule_issues, _ = run_vendor_rules(raw_text, vendor_config)
         financial_issues.extend(rule_issues)
 
         features = vendor_config.get("features", [])
 
-        if "ghost_rental" in features:
-            ghost_rental_issue = check_ghost_rental(
-                ref_fields["serial_number"], ref_fields["billed_through"],
-                ref_fields["contract_start"], extracted_daily_rate
-            )
-            if ghost_rental_issue:
-                financial_issues.append(ghost_rental_issue)
+        if "ghost_rental" in features or "rate_drift" in features:
+            unit_blocks = split_into_unit_blocks(raw_text)
+            for block in unit_blocks:
+                serial = block["serial_number"]
+                block_dates = extract_unit_dates(block["text"])
+                block_rate = get_unit_daily_rate(block["text"])
 
-        if "rate_drift" in features:
-            drift_issue = check_rate_drift(
-                ref_fields["serial_number"], vendor_name, extracted_daily_rate,
-                ref_fields["invoice_number"], ref_fields["contract_start"]
-            )
-            if drift_issue:
-                financial_issues.append(drift_issue)
+                if "ghost_rental" in features:
+                    ghost_issue = check_ghost_rental(
+                        serial, block_dates["billed_through"],
+                        block_dates["contract_start"], block_rate
+                    )
+                    if ghost_issue:
+                        financial_issues.append(ghost_issue)
+
+                if "rate_drift" in features:
+                    drift_issue = check_rate_drift(
+                        serial, vendor_name, block_rate,
+                        doc_fields["invoice_number"], block_dates["contract_start"]
+                    )
+                    if drift_issue:
+                        financial_issues.append(drift_issue)
 
         if vendor_name not in history:
             history[vendor_name] = {"invoice_count": 0, "flagged_count": 0, "overcharge_history": []}
@@ -211,10 +256,10 @@ def audit_invoice(file_path):
         "file": file_path,
         "status": status,
         "vendor_name": vendor_name,
-        "account_number": ref_fields["account_number"],
-        "invoice_number": ref_fields["invoice_number"],
-        "afe_number": ref_fields["afe_number"],
-        "api_number": ref_fields["api_number"],
+        "account_number": doc_fields["account_number"],
+        "invoice_number": doc_fields["invoice_number"],
+        "afe_number": doc_fields["afe_number"],
+        "api_number": doc_fields["api_number"],
         "financial_issues": financial_issues if financial_issues else ["None"],
         "compliance_issues": compliance_issues if compliance_issues else ["None"],
         "vendor_risk_level": vendor_risk_level,
