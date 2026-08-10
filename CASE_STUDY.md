@@ -136,3 +136,25 @@ I verified it against both directions at once: the same test file where the real
 ## The lesson
 
 Finding one bug and generalizing "the same category of thing might be wrong elsewhere" is good instinct. But the fix that solves one instance of a pattern is not automatically the fix for every instance of that pattern, even when they look related on the surface. A fee check and a cross-referenced identity check both suffer from "only looking at the first match" - but the reason they suffer from it, and what actually solving it requires, are genuinely different. Recognizing that a bug rhymes with an earlier one is useful for knowing where to look next. It is not a substitute for actually understanding what the new case requires before deciding the old fix will cover it.
+
+## An eighth bug: correct on the day, wrong on the format
+
+After fixing the per-unit parsing bug, I asked one more question before considering the ghost-rental feature done: what happens if a unit'"'"'s dates are readable, correctly separated per unit, but written in a different format than I expected?
+
+I built a test: a genuine ghost rental, correctly isolated to its own unit block, real overcharge sitting in the text - but with the date written as `2026-07-15` (ISO format) instead of the `07/15/2026` format every other test invoice used. I ran it. No crash, which was good. But also no flag - a real $3,850 overcharge, invisible, because my date parser only understood one specific layout.
+
+## Why this one was actually reassuring, not alarming
+
+Unlike the earlier bugs, this one didn'"'"'t reveal a hidden failure - it revealed a *known* limitation behaving exactly the way I'"'"'d built it to behave. When a date doesn'"'"'t match the expected format, the code correctly returns nothing rather than guessing or crashing, and every check downstream correctly treats "no parseable date" as "cannot evaluate this," not as "this is fine." That'"'"'s the right failure mode when you don'"'"'t yet support a format - silent-safe, not silent-wrong.
+
+But right and safe still isn'"'"'t the same as complete. A real overcharge with a real dollar figure was sitting in the document, and the honest state of the system was: it couldn'"'"'t see it, and gave no indication that it had even tried and failed. In a live tool, that'"'"'s the difference between "this vendor'"'"'s invoices need review" and a quiet blind spot nobody notices until it'"'"'s cost real money.
+
+## The fix
+
+I widened the date parser to try several common formats in sequence - the original slash-separated format, ISO dates, dash-separated dates, and written-out month names - stopping at whichever one actually matches, instead of assuming only one layout could ever appear. I also had to widen the *extraction* step, not just the parsing step: the regex that pulled a date value out of the invoice text in the first place was still only looking for the original slash pattern, so even a correctly-widened parser would never have received the ISO-format text at all if the extraction step had discarded it first.
+
+I tested the exact scenario that had failed - same unit, same overcharge, only the date format changed - and it now caught the ghost rental correctly, with the real dollar figure, while every other invoice in the test set (all of which use the original format) produced identical results to before.
+
+## The lesson
+
+A safe failure and a complete feature are not the same thing, and it'"'"'s easy to mistake one for the other. My code did the responsible thing when it hit a format it didn'"'"'t recognize - it didn'"'"'t crash, and it didn'"'"'t guess wrong. But "didn'"'"'t break" is a low bar. The real question was always going to be whether the feature actually covers the range of inputs it will realistically see, and the only way to find out was to hand it something slightly different from what I'"'"'d already tested and watch what happened.
