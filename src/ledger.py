@@ -9,11 +9,7 @@ CALL_OFF_INTAKE_CSV = "call_off_intake.csv"
 
 def load_ledger():
     """Uses utf-8-sig to safely handle a BOM marker if the file was
-    written by PowerShell (Set-Content -Encoding utf8 embeds a BOM).
-    Without this, json.load() silently fails on a BOM-prefixed file,
-    the broad except clause swallows the error, and the ledger appears
-    empty - which was causing every entry to look "new" and silently
-    wiping out anything not touched in that run."""
+    written by PowerShell (Set-Content -Encoding utf8 embeds a BOM)."""
     if os.path.exists(LEDGER_PATH):
         try:
             with open(LEDGER_PATH, "r", encoding="utf-8-sig") as f:
@@ -29,10 +25,33 @@ def save_ledger(ledger):
 
 
 def parse_mmddyyyy(date_str):
-    try:
-        return datetime.strptime(date_str.strip(), "%m/%d/%Y")
-    except Exception:
+    """Tries several common date formats, not just MM/DD/YYYY, since
+    different vendor export systems format dates differently (e.g. ISO
+    YYYY-MM-DD). Returns None only if none of the known formats match -
+    at that point the caller correctly skips the check rather than
+    guessing, but a supported format never silently gets missed just
+    because it wasn't the one format originally assumed."""
+    if not date_str:
         return None
+
+    date_str = date_str.strip()
+
+    formats_to_try = [
+        "%m/%d/%Y",   # 07/15/2026 - original assumed format
+        "%Y-%m-%d",   # 2026-07-15 - ISO format
+        "%m-%d-%Y",   # 07-15-2026 - dashes instead of slashes
+        "%d/%m/%Y",   # 15/07/2026 - day-first (some regions/vendors)
+        "%B %d, %Y",  # July 15, 2026 - written out
+        "%b %d, %Y",  # Jul 15, 2026 - abbreviated
+    ]
+
+    for fmt in formats_to_try:
+        try:
+            return datetime.strptime(date_str, fmt)
+        except ValueError:
+            continue
+
+    return None
 
 
 def record_call_off(serial_number, call_off_date_str, confirmation_number):
@@ -107,7 +126,7 @@ def import_call_offs_from_csv():
                 continue
 
             if not parse_mmddyyyy(date_str):
-                skipped.append(f"Row {row_num}: '{date_str}' is not a valid MM/DD/YYYY date, skipped")
+                skipped.append(f"Row {row_num}: '{date_str}' is not a recognized date format, skipped")
                 continue
 
             result = record_call_off(serial, date_str, conf)

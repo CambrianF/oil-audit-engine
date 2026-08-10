@@ -64,12 +64,6 @@ def extract_document_level_fields(raw_text):
 
 
 def split_into_unit_blocks(raw_text):
-    """Splits a multi-unit invoice into one text block per unit, so
-    per-unit checks (ghost rental, rate drift) use that unit's own
-    serial number, dates, and rate - not the first one found anywhere
-    in the document. Each block runs from one 'Serial:' occurrence to
-    the next. If no 'Serial:' field exists at all, the whole document
-    is treated as a single unit with serial_number=None."""
     serial_pattern = re.compile(r'Serial\s*:\s*([A-Za-z0-9\-]+)', re.IGNORECASE)
     matches = list(serial_pattern.finditer(raw_text))
 
@@ -86,20 +80,24 @@ def split_into_unit_blocks(raw_text):
 
 
 def extract_unit_dates(block_text):
+    """Extracts the raw date TEXT next to each label using a broad
+    pattern that captures common formats (slashes, dashes, or a written
+    month name) - actual validation/parsing happens later in
+    parse_mmddyyyy, which tries multiple formats. This function's job is
+    only to not throw away a date just because it isn't MM/DD/YYYY."""
     def find(pattern):
         match = re.search(pattern, block_text, re.IGNORECASE)
         return match.group(1).strip() if match else "N/A"
 
+    date_value_pattern = r'([0-9]{1,4}[/\-][0-9]{1,2}[/\-][0-9]{1,4}|[A-Za-z]+ [0-9]{1,2},? [0-9]{4})'
+
     return {
-        "billed_through": find(r'Billed\s+Through\s*:\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})'),
-        "contract_start": find(r'Contract\s+Start\s*:\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})'),
+        "billed_through": find(r'Billed\s+Through\s*:\s*' + date_value_pattern),
+        "contract_start": find(r'Contract\s+Start\s*:\s*' + date_value_pattern),
     }
 
 
 def get_unit_daily_rate(block_text):
-    """Returns the first daily rate found within a single unit's own
-    text block - correct here because each block should represent one
-    unit's rental terms, unlike scanning the whole document at once."""
     rates = find_all_daily_rates(block_text)
     return rates[0] if rates else None
 
