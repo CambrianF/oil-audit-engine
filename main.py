@@ -4,6 +4,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from datetime import datetime
 from src.auditor import audit_invoice
+from src.dispute_generator import write_dispute_letters
 
 
 def save_workbook_safely(wb, path):
@@ -33,9 +34,11 @@ def main():
         return
 
     audit_results = []
+    raw_results = []
 
     for file_path in files:
         result = audit_invoice(file_path)
+        raw_results.append(result)
         audit_results.append({
             "File Name": result["file"],
             "Vendor Name": result.get("vendor_name", "Unknown Vendor"),
@@ -59,6 +62,12 @@ def main():
         print(f"Compliance Issues: {result['compliance_issues']}")
         print(f"Vendor Risk Level: {result.get('vendor_risk_level', 'N/A')}")
         print("----------------------------------------\n")
+
+    dispute_files = write_dispute_letters(raw_results)
+    if dispute_files:
+        print(f"\nGenerated {len(dispute_files)} dispute letter(s):")
+        for f in dispute_files:
+            print(f"  - {f}")
 
     total_invoices = len(audit_results)
     passed_invoices = sum(1 for r in audit_results if r["Audit Status"] == "Passed")
@@ -108,6 +117,7 @@ def main():
         ("Passed Compliance", passed_invoices),
         ("Review (Informational)", review_invoices),
         ("Flagged / Discrepancies", flagged_invoices),
+        ("Dispute Letters Generated", len(dispute_files)),
         ("Overall Compliance Pass Rate", f"{pass_rate:.1%}")
     ]
 
