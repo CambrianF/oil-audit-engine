@@ -158,3 +158,29 @@ I tested the exact scenario that had failed - same unit, same overcharge, only t
 ## The lesson
 
 A safe failure and a complete feature are not the same thing, and it'"'"'s easy to mistake one for the other. My code did the responsible thing when it hit a format it didn'"'"'t recognize - it didn'"'"'t crash, and it didn'"'"'t guess wrong. But "didn'"'"'t break" is a low bar. The real question was always going to be whether the feature actually covers the range of inputs it will realistically see, and the only way to find out was to hand it something slightly different from what I'"'"'d already tested and watch what happened.
+
+## A ninth bug: a heuristic that looked right and wasn''t
+
+After building automated dispute-letter generation, I read one of the letters it produced for a real, multi-issue invoice rather than just checking that letters were being generated at all. It listed four disputed items correctly, cited the right contract clauses, and totaled the disputed amount to a specific dollar figure. It looked complete and professional.
+
+I checked the math by hand. It was wrong - not by a rounding error, but by nearly $300, because of a shortcut I''d taken without noticing I''d taken it.
+
+## Why it looked right
+
+The code that calculated each item''s disputed amount worked by finding every dollar figure mentioned in that issue''s description and taking the largest one. For some issue types, that happened to be correct - a Ghost Rental issue states the overcharge amount directly, and it''s the only large number in the sentence, so "take the biggest number" gave the right answer by coincidence.
+
+For other issue types, it was wrong in a way that was easy to miss. An ESC Cap Violation reads: "Environmental Service Charge $210.00 exceeds contractual cap of $99.00." The actual amount owed back is the difference - $111.00. But $210.00 is the larger of the two numbers in that sentence, so the heuristic grabbed the full billed amount instead of the overcharge, overstating that one line item by almost double.
+
+## Why this mattered more than a typical bug
+
+Every other bug I''d found up to this point affected whether the tool caught a problem or missed one. This was different: the tool had already caught the problem correctly, described it correctly in plain English, and then silently miscalculated the number attached to it - on a document specifically meant to be sent to another company demanding a specific dollar figure. A vendor receiving this letter could have pointed at the $210 figure, correctly noted that number was the full charge and not an overcharge, and used that single error to dismiss the entire dispute - including the three other items that were completely correct.
+
+A wrong internal calculation is a bug. A wrong number on a letter that leaves the building is a credibility problem, and those aren''t the same severity even when the underlying code mistake is small.
+
+## The fix
+
+I replaced "find the biggest number in the sentence" with logic that reads each issue by its actual type and extracts the number that type is actually reporting - the difference between billed and capped amounts for a cap violation, the full charge for an unauthorized fee, the stated overcharge for a ghost rental. For issue types that don''t state a number confidently calculable from the text alone - a rate-roll failure needs a weekly or monthly rate that isn''t on file to compute real savings - the letter now says so explicitly and excludes that item from the total, instead of guessing.
+
+## The lesson
+
+A heuristic that produces a plausible-looking number is more dangerous than one that crashes, because a crash gets noticed immediately and a plausible wrong answer doesn''t get checked unless someone deliberately does the arithmetic by hand. "Take the biggest number in the sentence" passed every earlier test that only checked whether a letter got generated at all. It only failed the one test that actually mattered, which was reading the output the way the person receiving it would.
