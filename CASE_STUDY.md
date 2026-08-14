@@ -184,3 +184,25 @@ I replaced "find the biggest number in the sentence" with logic that reads each 
 ## The lesson
 
 A heuristic that produces a plausible-looking number is more dangerous than one that crashes, because a crash gets noticed immediately and a plausible wrong answer doesn''t get checked unless someone deliberately does the arithmetic by hand. "Take the biggest number in the sentence" passed every earlier test that only checked whether a letter got generated at all. It only failed the one test that actually mattered, which was reading the output the way the person receiving it would.
+
+## A tenth bug: two correct systems that didn''t agree with each other
+
+By this point, ghost-rental and rate-drift detection were both fully rebuilt to work per-unit - each one correctly split a multi-unit invoice into blocks and cited the exact serial number a violation belonged to. Separately, the fee-cap and unauthorized-fee checks had already been fixed once before, to catch every occurrence of a fee across a whole multi-unit document instead of just the first.
+
+Both fixes were correct on their own. I hadn''t checked whether they were correct *together*.
+
+I built a test: one invoice, two units, both with an Environmental Service Charge violation - one at $250 over cap, one at $180 over cap. The fee-cap check correctly caught both. But neither line said which unit it belonged to. A vendor''s AR department reading the resulting dispute letter would see two identical-looking violations with different dollar amounts and nothing telling them which piece of equipment either one referred to.
+
+## Why this one was different from the ninth
+
+The ninth bug was a heuristic doing the wrong math on a single, well-defined calculation. This one wasn''t a wrong calculation at all - every number was correct. The problem was that two genuinely correct pieces of logic, built at different points in the project to solve different problems, had never been checked against each other. Ghost-rental knew about units. Fee-cap checking didn''t. Nothing was lying; something was just missing that only became visible once both kinds of check needed to describe the same multi-unit document at once.
+
+## The fix
+
+Rather than bolt unit-awareness onto the fee-cap and unauthorized-fee checks as a separate parallel mechanism, I unified the architecture: every vendor''s rules - rate caps, rate-roll, fee caps, unauthorized fees, and the existing ghost-rental/rate-drift checks - now run against the same per-unit text blocks, using the identical block-splitting logic in every case. When a serial number is known for a block, every issue produced from that block is tagged with it. When no serial number exists at all - true for every vendor except United Rentals - the block is simply the whole document, and nothing about the output changes from before.
+
+I verified this by checking every single United Rentals result against its last known-correct values, one by one, not just the new multi-unit test case - because a change to how every rule runs is exactly the kind of fix that can look right on the case it was built for while quietly breaking something adjacent.
+
+## The lesson
+
+Two features can each be individually correct and still be collectively wrong, if nothing ever required them to describe the same situation consistently. The earlier multi-unit fixes were built to solve the specific problem in front of me at the time, not to establish "every rule in this system understands units" as a standing property of the codebase. It took building a test that deliberately exercised two features at once - not just each one separately - to notice that gap existed at all.
