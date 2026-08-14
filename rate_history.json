@@ -9,6 +9,16 @@
         "invoice_number": "0091831110",
         "invoice_date": "N/A"
     },
+    "United Rentals Inc.::LT-77701": {
+        "rate": 95.0,
+        "invoice_number": "0091900001",
+        "invoice_date": "N/A"
+    },
+    "United Rentals Inc.::GEN-77702": {
+        "rate": 110.0,
+        "invoice_number": "0091900001",
+        "invoice_date": "N/A"
+    },
     "United Rentals Inc.::PS-33110": {
         "rate": 95.0,
         "invoice_number": "0091829555",

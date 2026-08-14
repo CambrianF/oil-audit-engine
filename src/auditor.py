@@ -64,6 +64,11 @@ def extract_document_level_fields(raw_text):
 
 
 def split_into_unit_blocks(raw_text):
+    """Splits an invoice into one text block per unit, based on 'Serial:'
+    occurrences. If no 'Serial:' field exists at all, returns the whole
+    document as a single block with serial_number=None - this makes
+    single-unit vendors (Apex, Pioneer, Basin Trucking) behave exactly
+    as before, since they never have a Serial field to begin with."""
     serial_pattern = re.compile(r'Serial\s*:\s*([A-Za-z0-9\-]+)', re.IGNORECASE)
     matches = list(serial_pattern.finditer(raw_text))
 
@@ -80,11 +85,6 @@ def split_into_unit_blocks(raw_text):
 
 
 def extract_unit_dates(block_text):
-    """Extracts the raw date TEXT next to each label using a broad
-    pattern that captures common formats (slashes, dashes, or a written
-    month name) - actual validation/parsing happens later in
-    parse_mmddyyyy, which tries multiple formats. This function's job is
-    only to not throw away a date just because it isn't MM/DD/YYYY."""
     def find(pattern):
         match = re.search(pattern, block_text, re.IGNORECASE)
         return match.group(1).strip() if match else "N/A"
@@ -186,18 +186,21 @@ def audit_invoice(file_path):
 
     if vendor_name in contracts:
         vendor_config = contracts[vendor_name]
-
-        rule_issues, _ = run_vendor_rules(raw_text, vendor_config)
-        financial_issues.extend(rule_issues)
-
         features = vendor_config.get("features", [])
 
-        if "ghost_rental" in features or "rate_drift" in features:
-            unit_blocks = split_into_unit_blocks(raw_text)
-            for block in unit_blocks:
-                serial = block["serial_number"]
-                block_dates = extract_unit_dates(block["text"])
-                block_rate = get_unit_daily_rate(block["text"])
+        unit_blocks = split_into_unit_blocks(raw_text)
+
+        for block in unit_blocks:
+            serial = block["serial_number"]
+            block_text = block["text"]
+
+            rule_issues, block_rate = run_vendor_rules(block_text, vendor_config, serial_number=serial)
+            financial_issues.extend(rule_issues)
+
+            if serial and ("ghost_rental" in features or "rate_drift" in features):
+                block_dates = extract_unit_dates(block_text)
+                if block_rate is None:
+                    block_rate = get_unit_daily_rate(block_text)
 
                 if "ghost_rental" in features:
                     ghost_issue = check_ghost_rental(
